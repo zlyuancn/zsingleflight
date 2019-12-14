@@ -16,18 +16,18 @@ type call struct {
     e  error
 }
 
-type singleFlight struct {
+type SingleFlight struct {
     mu sync.Mutex
     m  map[string]*call
 }
 
-func New() *singleFlight {
-    return &singleFlight{
+func New() *SingleFlight {
+    return &SingleFlight{
         m: make(map[string]*call),
     }
 }
 
-func (m *singleFlight) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
+func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
     m.mu.Lock()
 
     // 来晚了, 等待结果
