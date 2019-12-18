@@ -57,12 +57,15 @@ func TestDo(t *testing.T) {
 
 func Benchmark_A(b *testing.B) {
     var sf = New()
-    b.Log(b.N)
     b.ResetTimer()
 
-    for i:=0;i<b.N;i++{
-        _, _ = sf.Do(strconv.Itoa(i), func() (i interface{}, e error) {
-            return nil, nil
-        })
-    }
+    b.RunParallel(func(p *testing.PB) {
+        i := 0
+        for p.Next() {
+            _, _ = sf.Do(strconv.Itoa(i), func() (i interface{}, e error) {
+                return nil, nil
+            })
+            i++
+        }
+    })
 }
