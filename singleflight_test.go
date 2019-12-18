@@ -9,6 +9,7 @@
 package zsingleflight
 
 import (
+    "strconv"
     "sync"
     "sync/atomic"
     "testing"
@@ -51,5 +52,17 @@ func TestDo(t *testing.T) {
 
     if got := atomic.LoadInt32(&calls); got != 1 {
         t.Errorf("调用次数 = %d; 它应该是 1", got)
+    }
+}
+
+func Benchmark_A(b *testing.B) {
+    var sf = New()
+    b.Log(b.N)
+    b.ResetTimer()
+
+    for i:=0;i<b.N;i++{
+        _, _ = sf.Do(strconv.Itoa(i), func() (i interface{}, e error) {
+            return nil, nil
+        })
     }
 }
