@@ -9,6 +9,8 @@
 package zsingleflight
 
 import (
+    "crypto/rand"
+    "math/big"
     "strconv"
     "sync"
     "sync/atomic"
@@ -57,12 +59,17 @@ func TestDo(t *testing.T) {
 
 func Benchmark_A(b *testing.B) {
     var sf = New()
+
     b.ResetTimer()
 
     b.RunParallel(func(p *testing.PB) {
         i := 0
         for p.Next() {
-            _, _ = sf.Do(strconv.Itoa(i), func() (i interface{}, e error) {
+            sr := new(big.Int).SetInt64(10000)
+            n, _ := rand.Int(rand.Reader, sr)
+            m := n.Int64()
+
+            _, _ = sf.Do(strconv.Itoa(int(m)), func() (i interface{}, e error) {
                 return nil, nil
             })
             i++

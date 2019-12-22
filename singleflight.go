@@ -8,7 +8,10 @@
 
 package zsingleflight
 
-import "sync"
+import (
+    "hash/crc32"
+    "sync"
+)
 
 type call struct {
     wg sync.WaitGroup
@@ -17,22 +20,44 @@ type call struct {
 }
 
 type SingleFlight struct {
-    mu sync.Mutex
-    m  map[string]*call
+    mxs   []*sync.Mutex
+    mms   []map[string]*call
+    shard uint32
 }
 
 func New() *SingleFlight {
+    return NewWithShard(0)
+}
+
+// 指定分片
+func NewWithShard(shard uint32) *SingleFlight {
+    if shard <= 0 {
+        shard = 10
+    }
+
+    mxs := make([]*sync.Mutex, shard)
+    mms := make([]map[string]*call, shard)
+    for i := uint32(0); i < shard; i++ {
+        mxs[i] = new(sync.Mutex)
+        mms[i] = make(map[string]*call)
+    }
     return &SingleFlight{
-        m: make(map[string]*call),
+        mxs:   mxs,
+        mms:   mms,
+        shard: shard,
     }
 }
 
 func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
-    m.mu.Lock()
+    shard := crc32.ChecksumIEEE([]byte(key)) % m.shard
+    mx := m.mxs[shard]
+    mm := m.mms[shard]
+
+    mx.Lock()
 
     // 来晚了, 等待结果
-    if c, ok := m.m[key]; ok {
-        m.mu.Unlock()
+    if c, ok := mm[key]; ok {
+        mx.Unlock()
         c.wg.Wait()
         return c.v, c.e
     }
@@ -40,17 +65,17 @@ func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface
     // 占位置
     c := new(call)
     c.wg.Add(1)
-    m.m[key] = c
-    m.mu.Unlock()
+    mm[key] = c
+    mx.Unlock()
 
     // 执行db加载
     c.v, c.e = fn()
     c.wg.Done()
 
     // 离开
-    m.mu.Lock()
-    delete(m.m, key)
-    m.mu.Unlock()
+    mx.Lock()
+    delete(mm, key)
+    mx.Unlock()
 
     return c.v, c.e
 }
