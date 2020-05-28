@@ -9,7 +9,7 @@
 package zsingleflight
 
 import (
-    "hash/crc32"
+    "hash/fnv"
     "sync"
 )
 
@@ -21,42 +21,59 @@ type call struct {
 
 type SingleFlight struct {
     mxs   []*sync.Mutex
-    mms   []map[string]*call
-    shard uint32
+    mms   []map[uint64]*call
+    shard uint64
+    mod_v uint64
 }
 
-func New() *SingleFlight {
-    return NewWithShard(0)
+func New(shard ...uint64) *SingleFlight {
+    shard_count := uint64(16)
+    if len(shard) > 0 {
+        shard_count = shard[0]
+    }
+    return NewWithShard(shard_count)
 }
 
-// 指定分片
-func NewWithShard(shard uint32) *SingleFlight {
-    if shard <= 0 {
-        shard = 10
+func NewWithShard(shard uint64) *SingleFlight {
+    if shard == 0 {
+        shard = 16
     }
 
-    mxs := make([]*sync.Mutex, shard)
-    mms := make([]map[string]*call, shard)
-    for i := uint32(0); i < shard; i++ {
+    shard_num := uint64(2)
+    for shard_num < shard {
+        shard_num *= 2
+    }
+
+    mxs := make([]*sync.Mutex, shard_num)
+    mms := make([]map[uint64]*call, shard_num)
+    for i := uint64(0); i < shard_num; i++ {
         mxs[i] = new(sync.Mutex)
-        mms[i] = make(map[string]*call)
+        mms[i] = make(map[uint64]*call)
     }
     return &SingleFlight{
         mxs:   mxs,
         mms:   mms,
-        shard: shard,
+        shard: shard_num,
+        mod_v: shard_num - 1,
     }
 }
 
+func fnv64a(key string) uint64 {
+    m := fnv.New64a()
+    _, _ = m.Write([]byte(key))
+    return m.Sum64()
+}
+
 func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
-    shard := crc32.ChecksumIEEE([]byte(key)) % m.shard
+    hash := fnv64a(key)
+    shard := hash & m.mod_v
     mx := m.mxs[shard]
     mm := m.mms[shard]
 
     mx.Lock()
 
     // 来晚了, 等待结果
-    if c, ok := mm[key]; ok {
+    if c, ok := mm[hash]; ok {
         mx.Unlock()
         c.wg.Wait()
         return c.v, c.e
@@ -65,7 +82,7 @@ func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface
     // 占位置
     c := new(call)
     c.wg.Add(1)
-    mm[key] = c
+    mm[hash] = c
     mx.Unlock()
 
     // 执行db加载
@@ -74,7 +91,7 @@ func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface
 
     // 离开
     mx.Lock()
-    delete(mm, key)
+    delete(mm, hash)
     mx.Unlock()
 
     return c.v, c.e
