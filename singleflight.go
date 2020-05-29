@@ -66,6 +66,10 @@ func fnv64a(key string) uint64 {
 
 func (m *SingleFlight) Do(key string, fn func() (interface{}, error)) (interface{}, error) {
     hash := fnv64a(key)
+    return m.DoHashKey(hash, fn)
+}
+
+func (m *SingleFlight) DoHashKey(hash uint64, fn func() (interface{}, error)) (interface{}, error) {
     shard := hash & m.mod_v
     mx := m.mxs[shard]
     mm := m.mms[shard]
