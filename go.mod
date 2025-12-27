@@ -1,3 +1,3 @@
 module github.com/zlyuancn/zsingleflight
 
-go 1.12
+go 1.19
